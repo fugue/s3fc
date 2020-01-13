@@ -1,0 +1,77 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  AppName:
+    Type: String
+    Description: "Name of the application."
+  InstanceName:
+    Default: default
+    Type: String
+    Description: "Postfix used for multiple deployments."
+
+Resources:
+
+  S3FCKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: S3FC KMS Key
+      Enabled: true
+      EnableKeyRotation: false
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: !Sub "${AppName}-${InstanceName}-policy"
+        Statement:
+          - Sid: 'Enable IAM User Permissions'
+            Effect: 'Allow'
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+
+  S3FCKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub "alias/${AppName}/${InstanceName}"
+      TargetKeyId: !Ref S3FCKey
+
+  S3FCBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Join [ '-', [!Ref AppName, !Ref 'AWS::Region', !Ref 'AWS::AccountId', !Ref InstanceName ]]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              KMSMasterKeyID: !Ref S3FCKey
+              SSEAlgorithm: aws:kms
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: 'Name'
+          Value: !Ref AppName
+        - Key: 'InstanceName'
+          Value: !Ref InstanceName
+      VersioningConfiguration:
+        Status: Enabled
+
+Outputs:
+
+  S3FCBucketName:
+    Description: "S3FC Bucket ARN"
+    Value: !Ref S3FCBucket
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", "S3FCBucketName" ] ]
+
+  S3FCBucketARN:
+    Description: "S3FC Bucket ARN"
+    Value: !GetAtt S3FCBucket.Arn
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", "S3FCBucketARN" ] ]
+
+  S3FCKey:
+    Description: "S3FC KMS Key ARN"
+    Value: !GetAtt S3FCKey.Arn
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", "S3FCKey" ] ]

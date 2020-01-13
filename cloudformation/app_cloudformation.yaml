@@ -1,0 +1,409 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  LogRetentionInDays:
+    Default: "365"
+    Description: Number of days to retain lambda log messages
+    Type: String
+  AppName:
+    Type: String
+    Description: "Name of the application."
+  InstanceName:
+    Default: default
+    Type: String
+    Description: "Postfix used for multiple deployments."
+  Bucket:
+    Default: default
+    Type: String
+    Description: "Bucket where datebases will live."
+  KMSKey:
+    Default: default
+    Type: String
+    Description: "KMS Key used to encrypt the bucket."
+
+
+Globals:
+  Function:
+    Timeout: 900
+    MemorySize: 1792
+
+
+Resources:
+
+  S3FCFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-role-${InstanceName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+      - "arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess"
+      Policies:
+      - PolicyName: STSAccess
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Sid: AllowAssumeRole
+            Effect: Allow
+            Action:
+            - "sts:AssumeRole"
+            Resource: "arn:aws:iam::*:role/*"
+      - PolicyName: S3Access
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Sid: S3List
+            Effect: Allow
+            Action:
+            - s3:ListBucket
+            Resource:
+            - !Ref Bucket
+          - Sid: S3ReadWrite
+            Effect: Allow
+            Action:
+            - s3:HeadObject
+            - s3:GetObject
+            - s3:PutObject
+            Resource:
+            - !Join [ "", [ !Ref Bucket, "/*" ] ]
+      - PolicyName: KMSKeyAccess
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            Effect: Allow
+            Action:
+            - kms:Encrypt
+            - kms:Decrypt
+            - kms:GenerateDataKey
+            - kms:DescribeKey
+            Resource: !Ref KMSKey
+
+
+  S3FCFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: LogGroup
+    Properties:
+      CodeUri: ../artifacts/s3fc.zip
+      FunctionName: !Sub "${AppName}-${InstanceName}"
+      Tracing: Active
+      Handler: !Sub "./${AppName}"
+      Runtime: go1.x
+      Role: !GetAtt S3FCFunctionRole.Arn
+      Environment:
+        Variables:
+            LOG_LEVEL: DEBUG
+      Tags:
+        Name: !Ref AppName
+        InstanceName: !Ref InstanceName
+
+
+  S3FCStateMachineRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub "${AppName}-statemachine-role-${InstanceName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: states.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName: invoke-lambda-function
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+          - Effect: Allow
+            Action:
+            - lambda:InvokeFunction
+            Resource:
+            - !Join [ "", [ !GetAtt S3FCFunction.Arn, "*" ] ]
+
+
+  S3FCStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub "${AppName}-${InstanceName}"
+      RoleArn: !GetAtt S3FCStateMachineRole.Arn
+      DefinitionString:
+        "Fn::Sub":
+          - >
+            {
+                "StartAt": "PutObjectSet",
+                "States": {
+                    "PutObjectSet": {
+                        "Type": "Task",
+                        "ResultPath": null,
+                        "Resource": "arn:aws:states:::lambda:invoke",
+                        "Parameters": {
+                            "FunctionName": "${FunctionArn}:$LATEST",
+                            "Payload": {
+                                "assume_role.$": "$.input.assume_role",
+                                "external_id.$": "$.input.external_id",
+                                "bolt_db_url.$": "$.input.bolt_db_url",
+                                "put_object_set": {
+                                    "bucket.$": "$.input.bucket",
+                                    "prefix.$": "$.input.prefix",
+                                    "destination_bucket.$": "$.input.destination_bucket",
+                                    "destination_path.$": "$.input.destination_path",
+                                    "block_size.$": "$.input.block_size",
+                                    "delimiter.$": "$.input.delimiter"
+                                }
+                            }
+                        },
+                        "Next": "TakeInventory",
+                        "Retry": [
+                            {
+                                "ErrorEquals": [
+                                    "States.ALL"
+                                ],
+                                "IntervalSeconds": 1,
+                                "BackoffRate": 2,
+                                "MaxAttempts": 3
+                            }
+                        ]
+                    },
+                    "TakeInventory": {
+                        "Type": "Task",
+                        "ResultPath": null,
+                        "Resource": "arn:aws:states:::lambda:invoke",
+                        "Parameters": {
+                            "FunctionName": "${FunctionArn}:$LATEST",
+                            "Payload": {
+                                "assume_role.$": "$.input.assume_role",
+                                "external_id.$": "$.input.external_id",
+                                "bolt_db_url.$": "$.input.bolt_db_url",
+                                "take_inventory": {
+                                    "bucket.$": "$.input.bucket",
+                                    "prefix.$": "$.input.prefix",
+                                    "destination.$": "$.input.inventory_url"
+                                }
+                            }
+                        },
+                        "Next": "LoadInventory",
+                        "Retry": [
+                            {
+                                "ErrorEquals": [
+                                    "States.ALL"
+                                ],
+                                "IntervalSeconds": 1,
+                                "BackoffRate": 2,
+                                "MaxAttempts": 3
+                            }
+                        ]
+                    },
+                    "LoadInventory": {
+                        "Type": "Task",
+                        "ResultPath": null,
+                        "Resource": "arn:aws:states:::lambda:invoke",
+                        "Parameters": {
+                            "FunctionName": "${FunctionArn}:$LATEST",
+                            "Payload": {
+                                "assume_role.$": "$.input.assume_role",
+                                "external_id.$": "$.input.external_id",
+                                "bolt_db_url.$": "$.input.bolt_db_url",
+                                "load_inventory": {
+                                    "bucket.$": "$.input.bucket",
+                                    "prefix.$": "$.input.prefix",
+                                    "source.$": "$.input.inventory_url"
+                                }
+                            }
+                        },
+                        "Next": "PlanNewObjects",
+                        "Retry": [
+                            {
+                                "ErrorEquals": [
+                                    "States.ALL"
+                                ],
+                                "IntervalSeconds": 1,
+                                "BackoffRate": 2,
+                                "MaxAttempts": 3
+                            }
+                        ]
+                    },
+                    "PlanNewObjects": {
+                        "Type": "Task",
+                        "ResultPath": null,
+                        "Resource": "arn:aws:states:::lambda:invoke",
+                        "Parameters": {
+                            "FunctionName": "${FunctionArn}:$LATEST",
+                            "Payload": {
+                                "assume_role.$": "$.input.assume_role",
+                                "external_id.$": "$.input.external_id",
+                                "bolt_db_url.$": "$.input.bolt_db_url",
+                                "plan_new_objects": {
+                                    "bucket.$": "$.input.bucket",
+                                    "prefix.$": "$.input.prefix"
+                                }
+                            }
+                        },
+                        "Next": "ListNewDestinationObjects",
+                        "Retry": [
+                            {
+                                "ErrorEquals": [
+                                    "States.ALL"
+                                ],
+                                "IntervalSeconds": 1,
+                                "BackoffRate": 2,
+                                "MaxAttempts": 3
+                            }
+                        ]
+                    },
+                    "ListNewDestinationObjects": {
+                        "Type": "Task",
+                        "ResultPath": "$.new_objects",
+                        "Resource": "arn:aws:states:::lambda:invoke",
+                        "Parameters": {
+                            "FunctionName": "${FunctionArn}:$LATEST",
+                            "Payload": {
+                                "assume_role.$": "$.input.assume_role",
+                                "external_id.$": "$.input.external_id",
+                                "bolt_db_url.$": "$.input.bolt_db_url",
+                                "list_objects_by_state": {
+                                    "bucket.$": "$.input.bucket",
+                                    "prefix.$": "$.input.prefix",
+                                    "type": "destination",
+                                    "state": "new",
+                                    "limit": 100,
+                                    "exclusive_start": null
+                                }
+                            }
+                        },
+                        "Next": "FilterListOutput",
+                        "Retry": [
+                            {
+                                "ErrorEquals": [
+                                    "States.ALL"
+                                ],
+                                "IntervalSeconds": 1,
+                                "BackoffRate": 2,
+                                "MaxAttempts": 3
+                            }
+                        ]
+                    },
+                    "FilterListOutput": {
+                        "Type": "Pass",
+                        "InputPath": "$.new_objects.Payload.list_objects_by_state",
+                        "ResultPath": "$.new_objects",
+                        "Next": "More Items?"
+                    },
+                    "More Items?": {
+                        "Type": "Choice",
+                        "Choices": [
+                            {
+                                "Variable": "$.new_objects.length",
+                                "NumericEquals": 0,
+                                "Next": "Done"
+                            }
+                        ],
+                        "Default": "WriteDestinationObjects"
+                    },
+                    "WriteDestinationObjects": {
+                        "Type": "Map",
+                        "InputPath": "$",
+                        "ItemsPath": "$.new_objects.items",
+                        "MaxConcurrency": 100,
+                        "ResultPath": "$.write_destination_object",
+                        "Parameters": {
+                            "assume_role.$": "$.input.assume_role",
+                            "external_id.$": "$.input.external_id",
+                            "bolt_db_url.$": "$.input.bolt_db_url",
+                            "write_destination_object": {
+                                "bucket.$": "$.input.bucket",
+                                "prefix.$": "$.input.prefix",
+                                "id.$": "$$.Map.Item.Value.id"
+                            }
+                        },
+                        "Iterator": {
+                            "StartAt": "WriteDestinationObject",
+                            "States": {
+                                "WriteDestinationObject": {
+                                    "Type": "Task",
+                                    "ResultPath": null,
+                                    "Resource": "${FunctionArn}",
+                                    "Next": "SetId",
+                                    "Retry": [
+                                        {
+                                            "ErrorEquals": [
+                                                "States.ALL"
+                                            ],
+                                            "IntervalSeconds": 1,
+                                            "BackoffRate": 2,
+                                            "MaxAttempts": 3
+                                        }
+                                    ]
+                                },
+                                "SetId": {
+                                    "Type": "Pass",
+                                    "OutputPath": "$.write_destination_object.id",
+                                    "End": true
+                                }
+                            }
+                        },
+                        "Next": "UpdateObjectsState"
+                    },
+                    "UpdateObjectsState": {
+                        "Type": "Task",
+                        "ResultPath": null,
+                        "Resource": "arn:aws:states:::lambda:invoke",
+                        "Parameters": {
+                            "FunctionName": "${FunctionArn}:$LATEST",
+                            "Payload": {
+                                "assume_role.$": "$.input.assume_role",
+                                "external_id.$": "$.input.external_id",
+                                "bolt_db_url.$": "$.input.bolt_db_url",
+                                "update_object_state": {
+                                    "bucket.$": "$.input.bucket",
+                                    "prefix.$": "$.input.prefix",
+                                    "type": "destination",
+                                    "ids.$": "$.write_destination_object",
+                                    "state": "IN_SYNC"
+                                }
+                            }
+                        },
+                        "Next": "ListNewDestinationObjects",
+                        "Retry": [
+                            {
+                                "ErrorEquals": [
+                                    "States.ALL"
+                                ],
+                                "IntervalSeconds": 1,
+                                "BackoffRate": 2,
+                                "MaxAttempts": 3
+                            }
+                        ]
+                    },
+                    "Done": {
+                        "Type": "Pass",
+                        "End": true
+                    }
+                }
+            }
+          - FunctionArn: !GetAtt S3FCFunction.Arn
+
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AppName}-${InstanceName}"
+      RetentionInDays: !Ref LogRetentionInDays
+
+
+Outputs:
+  S3FCFunction:
+    Description: "S3FC Lambda Function ARN"
+    Value: !GetAtt S3FCFunction.Arn
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", "S3FCFunction" ] ]
+  S3FCFunctionRole:
+    Description: "S3FC Lambda Function ARN"
+    Value: !GetAtt S3FCFunctionRole.Arn
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", "S3FCFunctionRole" ] ]

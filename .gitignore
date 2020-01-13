@@ -1,0 +1,7 @@
+cloudformation/*_deploy.yaml
+cloudformation_deploy.yaml
+.idea
+.DS_Store
+.vscode/
+vendor
+artifacts
