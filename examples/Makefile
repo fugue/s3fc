@@ -1,6 +1,6 @@
 name=example-s3fc-job
 
-AWS=$(shell which aws)
+AWS?=$(shell which aws)
 
 
 S3FC_EXTERNAL_ID ?= example-external-id
@@ -26,6 +26,12 @@ all:
 			S3FCRoleArn=$(S3FC_ROLE_ARN) \
 			ExternalId=$(S3FC_EXTERNAL_ID)
 endif
+
+.PHONY: clean
+clean:
+	../scripts/empty_bucket.sh $(AWS) $(BUCKET)
+	$(AWS) cloudformation delete-stack --stack-name $(name)
+	$(AWS) cloudformation wait stack-delete-complete --stack-name $(name)
 
 .PHONY: upload_data
 upload_data:

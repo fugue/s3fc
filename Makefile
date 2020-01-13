@@ -1,8 +1,8 @@
 name = s3fc
 
-GO=$(shell which go)
-SAM=$(shell which sam)
-AWS=$(shell which aws)
+GO?=$(shell which go)
+SAM?=$(shell which sam)
+AWS?=$(shell which aws)
 S3FC_INSTANCE_NAME ?= default
 s3_stack_name = $(name)-s3-${S3FC_INSTANCE_NAME}
 stack_name = $(name)-${S3FC_INSTANCE_NAME}
@@ -68,9 +68,9 @@ install:
 			Bucket=$(S3FCBucketARN) \
 			KMSKey=$(KMS_KEY)
 
-.PHONY: teardown
-teardown:
-	$(AWS) s3 rm s3://$(BUCKET) --recursive
+.PHONY: uninstall
+uninstall:
+	scripts/empty_bucket.sh $(AWS) $(BUCKET)
 	$(AWS) cloudformation delete-stack --stack-name $(stack_name)
 	$(AWS) cloudformation wait stack-delete-complete --stack-name $(stack_name)
 	$(AWS) cloudformation delete-stack --stack-name $(s3_stack_name)
