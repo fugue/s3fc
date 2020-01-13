@@ -2,13 +2,13 @@
     "input": {
         "assume_role": "arn:aws:iam::XXXXXXXXXXXX:role/example-job-role",
         "external_id": "example-external-id",
-        "bolt_db_url": "s3://s3fc-us-east-1-XXXXXXXXXXXX-default/s3fc/example_job.bdb",
-        "inventory_url": "s3://s3fc-us-east-1-XXXXXXXXXXXX-default/s3fc/example_job.json",
-        "bucket": "example-job-us-east-1-XXXXXXXXXXXX",
+        "bolt_db_url": "s3://s3fc-YYYYYYYYY-XXXXXXXXXXXX-default/s3fc/example_job.bdb",
+        "inventory_url": "s3://s3fc-YYYYYYYYY-XXXXXXXXXXXX-default/s3fc/example_job.json",
+        "bucket": "example-job-YYYYYYYYY-XXXXXXXXXXXX",
         "prefix": "example-source-data",
-        "destination_bucket": "example-job-us-east-1-XXXXXXXXXXXX",
+        "destination_bucket": "example-job-YYYYYYYYY-XXXXXXXXXXXX",
         "destination_path": "example-destination-data",
         "block_size": 1048576,
-        "delimiter": "\n"
+        "delimiter": ""
     }
 }

@@ -7,7 +7,7 @@ S3 small file concatenator utility.
 * [Quick Build and Deployment](#quick-build-and-deployment)
 * [Make Targets](#make-targets)
 * [Deploying Example and Running Job](#deploying-example-and-running-job)
-* [Definitions](#defintions)
+* [Definitions](#definitions)
 * [Job Input](#job-input)
 
 ## Build and Deploy Dependencies
@@ -105,11 +105,12 @@ make -C examples upload_data
 4. Click the "Start Execution" button.
 5. Copy the contents of `examples/statemachine-input.json` into the input box.
 6. Replace the XXXXXXXXXXXX's with the aws account id the example is deployed to. Probably found by doing `aws sts get-caller-identity`
-7. Click the "Start execution" in the lower right of the modal.
-8. The step function will start an new execution and should complete sucessfully within a few seconds.
-9. Visit the S3 AWS Console https://s3.console.aws.amazon.com/s3/home
-10. Click in the bucket named like `example-job-<region>-<account_id>` 
-11. You should see a directory named `example-destination-data` with a single file containing the concatinated data from `example-source-data`
+7. Replace the YYYYYYYYY's with the region the example job has been deployed to.
+8. Click the "Start execution" in the lower right of the modal.
+9. The step function will start an new execution and should complete sucessfully within a few seconds.
+10. Visit the S3 AWS Console https://s3.console.aws.amazon.com/s3/home
+11. Click in the bucket named like `example-job-<region>-<account_id>` 
+12. You should see a directory named `example-destination-data` with a single file containing the concatinated data from `example-source-data`
 
 
 Cleaning up the example:
@@ -134,14 +135,14 @@ Example:
     "input": {
         "assume_role": "arn:aws:iam::XXXXXXXXXXXX:role/example-job-role",
         "external_id": "example-external-id",
-        "bolt_db_url": "s3://s3fc-us-east-1-XXXXXXXXXXXX-default/s3fc/example_job.bdb",
-        "inventory_url": "s3://s3fc-us-east-1-XXXXXXXXXXXX-default/s3fc/example_job.json",
-        "bucket": "example-job-us-east-1-XXXXXXXXXXXX",
+        "bolt_db_url": "s3://s3fc-YYYYYYYYY-XXXXXXXXXXXX-default/s3fc/example_job.bdb",
+        "inventory_url": "s3://s3fc-YYYYYYYYY-XXXXXXXXXXXX-default/s3fc/example_job.json",
+        "bucket": "example-job-YYYYYYYYY-XXXXXXXXXXXX",
         "prefix": "example-source-data",
-        "destination_bucket": "example-job-us-east-1-XXXXXXXXXXXX",
+        "destination_bucket": "example-job-YYYYYYYYY-XXXXXXXXXXXX",
         "destination_path": "example-destination-data",
         "block_size": 1048576,
-        "delimiter": "\n"
+        "delimiter": ""
     }
 }
 ```
@@ -157,4 +158,4 @@ prefix | `string` | **Required.** An object key prefix that will list the target
 destination_bucket | `string` | **Required.** The bucket where the destination files will be written to.
 destination_path | `string` | **Required.** The path where the destination files will be written to.
 block_size | `integer` | **Required.** The targeted size of destinations files in bytes.
-delimiter | `string` | **Required.** A string that acts as a delimeter between source files inside of destination file. An example being, if your source files are not new line terminated you may want to set this value to `"\n"` so that records are on individual lines in the file. If your files are new line terminated and you want source files to delimited by new lines, you could set this value to an empty string `""`
+delimiter | `string` | **Required (empty value allowed).** A string that acts as a delimeter between source files inside of destination file. An example being, if your source files are not new line terminated you may want to set this value to `"\n"` so that records are on individual lines in the file. If your files are new line terminated and you want source files to delimited by new lines, you could set this value to an empty string `""`
