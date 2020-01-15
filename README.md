@@ -1,6 +1,6 @@
 # S3FC
 
-This application takes sets of uncompressed text files in the same s3 bucket prefix and concatinates them into larger files as per [job configuration](#job-input). The initial use case for this application is to prepare a data set of many (millions+) small files of immutable data for batch processing or incremental processing. It is built on top of serverless platforms offered by AWS, Lambda and Step Functions.
+This application takes sets of uncompressed text files in the same s3 bucket prefix and concatenates them into larger files as per [job configuration](#job-input). The initial use case for this application is to prepare a data set of many (millions+) small files of immutable data for batch processing or incremental processing. It is built on top of serverless platforms offered by AWS, Lambda and Step Functions.
 
 ## Table of contents
 * [Build and Deploy Dependencies](#build-and-deploy-dependencies)
